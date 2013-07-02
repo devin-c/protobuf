@@ -36,8 +36,8 @@ module Protobuf
 
       def register_signals
         trap(:TTIN) do
-          @server.add_worker
-          log_info { "Increased worker size to: #{@server.total_workers}" }
+          @server.start_worker
+          log_info { "Increased worker size to: #{@server.workers.size}" }
         end
 
         trap(:TTOU) do

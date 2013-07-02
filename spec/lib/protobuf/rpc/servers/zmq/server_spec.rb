@@ -16,7 +16,7 @@ describe Protobuf::Rpc::Zmq::Server do
   end
 
   after do
-    subject.teardown
+    subject.stop
   end
 
   describe '.running?' do

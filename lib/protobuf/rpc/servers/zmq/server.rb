@@ -29,10 +29,6 @@ module Protobuf
           raise
         end
 
-        def add_worker
-          @total_workers = total_workers + 1
-        end
-
         def backend_ip
           frontend_ip
         end
@@ -73,32 +69,6 @@ module Protobuf
           !brokerless? && options[:broadcast_beacons]
         end
 
-        def broadcast_flatline
-          flatline = ::Protobuf::Rpc::DynamicDiscovery::Beacon.new(
-            :beacon_type => ::Protobuf::Rpc::DynamicDiscovery::BeaconType::FLATLINE,
-            :server => self.to_proto
-          )
-
-          @beacon_socket.send flatline.serialize_to_string, 0
-        end
-
-        def broadcast_heartbeat
-          @last_beacon = Time.now.to_i
-
-          heartbeat = ::Protobuf::Rpc::DynamicDiscovery::Beacon.new(
-            :beacon_type => ::Protobuf::Rpc::DynamicDiscovery::BeaconType::HEARTBEAT,
-            :server => self.to_proto
-          )
-
-          @beacon_socket.send(heartbeat.serialize_to_string, 0)
-
-          log_debug { sign_message("sent heartbeat to #{beacon_uri}") }
-        end
-
-        def broadcast_heartbeat?
-          Time.now.to_i >= next_beacon && broadcast_beacons?
-        end
-
         def brokerless?
           !!options[:workers_only]
         end
@@ -115,64 +85,14 @@ module Protobuf
           "tcp://#{frontend_ip}:#{frontend_port}"
         end
 
-        def maintenance_timeout
-          next_maintenance - Time.now.to_i
-        end
-
-        def next_maintenance
-          cycles = [next_reaping]
-          cycles << next_beacon if broadcast_beacons?
-
-          cycles.min
-        end
-
-        def minimum_timeout
-          0.1
-        end
-
-        def next_beacon
-          if @last_beacon.nil?
-            0
-          else
-            @last_beacon + beacon_interval
-          end
-        end
-
-        def next_reaping
-          if @last_reaping.nil?
-            0
-          else
-            @last_reaping + reaping_interval
-          end
-        end
-
-        def reap_dead_workers
-          @last_reaping = Time.now.to_i
-
-          @workers.keep_if do |worker|
-            worker.alive? or worker.join && false
-          end
-        end
-
-        def reap_dead_workers?
-          Time.now.to_i >= next_reaping
-        end
-
-        def reaping_interval
-          5
-        end
-
         def run
           @running = true
 
           start_broker unless brokerless?
-          start_missing_workers
+          start_workers
           wait_for_shutdown_signal
           broadcast_flatline if broadcast_beacons?
-          Thread.pass until reap_dead_workers.empty?
-          @broker.join unless brokerless?
         ensure
-          @running = false
           teardown
         end
 
@@ -180,68 +100,34 @@ module Protobuf
           !!@running
         end
 
-        def start_missing_workers
-          missing_workers = total_workers - @workers.size
-
-          if missing_workers > 0
-            missing_workers.times { start_worker }
-            log_debug { sign_message("#{total_workers} workers started") }
-          end
-        end
-
         def stop
           @running = false
           @shutdown_w.write('.')
         end
 
-        def teardown
-          @shutdown_r.try(:close)
-          @shutdown_w.try(:close)
-          @beacon_socket.try(:close)
-          @zmq_context.try(:terminate)
-          @last_reaping = @last_beacon = @timeout = nil
-        end
-
-        def total_workers
-          @total_workers ||= [@options[:threads].to_i, 1].max
-        end
-
-        def timeout
-          if @timeout.nil?
-            @timeout = 0
-          else
-            @timeout = [minimum_timeout, maintenance_timeout].max
-          end
-        end
-
-        def to_proto
-          @proto ||= ::Protobuf::Rpc::DynamicDiscovery::Server.new(
-            :uuid => uuid,
-            :address => frontend_ip,
-            :port => frontend_port.to_s,
-            :ttl => (beacon_interval * 1.5).ceil,
-            :services => ::Protobuf::Rpc::Service.implemented_services
-          )
-        end
-
-        def uuid
-          @uuid ||= SecureRandom.uuid
-        end
-
-        def wait_for_shutdown_signal
-          loop do
-            break if IO.select([@shutdown_r], nil, nil, timeout)
-
-            if reap_dead_workers?
-              reap_dead_workers
-              start_missing_workers
-            end
-
-            broadcast_heartbeat if broadcast_heartbeat?
-          end
-        end
-
         private
+
+        def broadcast_flatline
+          flatline = ::Protobuf::Rpc::DynamicDiscovery::Beacon.new(
+            :beacon_type => ::Protobuf::Rpc::DynamicDiscovery::BeaconType::FLATLINE,
+            :server => to_proto
+          )
+
+          @beacon_socket.send flatline.serialize_to_string, 0
+        end
+
+        def broadcast_heartbeat
+          @last_beacon = Time.now.to_i
+
+          heartbeat = ::Protobuf::Rpc::DynamicDiscovery::Beacon.new(
+            :beacon_type => ::Protobuf::Rpc::DynamicDiscovery::BeaconType::HEARTBEAT,
+            :server => to_proto
+          )
+
+          @beacon_socket.send(heartbeat.serialize_to_string, 0)
+
+          log_debug { sign_message("sent heartbeat to #{beacon_uri}") }
+        end
 
         def init_beacon_socket
           @beacon_socket = UDPSocket.new
@@ -268,12 +154,63 @@ module Protobuf
             begin
               ::Protobuf::Rpc::Zmq::Worker.new(server).run
             rescue => e
-              message = "Worker failed: #{e.inspect}\n #{e.backtrace.join($/)}"
-              $stderr.puts(message)
-              log_error { message }
+              msg = "Worker failed: #{e.inspect}\n #{e.backtrace.join($/)}"
+              $stderr.puts(msg)
+              log_error { msg }
+
+              retry if server.running?
             end
           end
         end
+
+        def start_workers
+          this_many = [@options[:threads].to_i, 1].max
+
+          this_many.times { start_worker }
+
+          log_debug { sign_message("#{this_many} workers started") }
+        end
+
+        def teardown
+          @running = false
+          @workers.delete_if(&:join)
+          @broker.join unless brokerless?
+          @shutdown_r.try(:close)
+          @shutdown_w.try(:close)
+          @beacon_socket.try(:close)
+          @zmq_context.try(:terminate)
+        end
+
+        def timeout
+          if broadcast_beacons?
+            beacon_interval
+          else
+            nil
+          end
+        end
+
+        def to_proto
+          @proto ||= ::Protobuf::Rpc::DynamicDiscovery::Server.new(
+            :uuid => uuid,
+            :address => frontend_ip,
+            :port => frontend_port.to_s,
+            :ttl => (beacon_interval * 1.5).ceil,
+            :services => ::Protobuf::Rpc::Service.implemented_services
+          )
+        end
+
+        def uuid
+          @uuid ||= SecureRandom.uuid
+        end
+
+        def wait_for_shutdown_signal
+          loop do
+            break if IO.select([@shutdown_r], nil, nil, timeout)
+
+            broadcast_heartbeat
+          end
+        end
+
       end
     end
   end
