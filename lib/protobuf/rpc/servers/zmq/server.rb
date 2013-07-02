@@ -154,7 +154,7 @@ module Protobuf
             begin
               ::Protobuf::Rpc::Zmq::Worker.new(server).run
             rescue => e
-              msg = "Worker failed: #{e.inspect}\n #{e.backtrace.join($/)}"
+              msg = "Worker failed: #{e.inspect}\n#{e.backtrace.join($/)}"
               $stderr.puts(msg)
               log_error { msg }
 
@@ -181,14 +181,6 @@ module Protobuf
           @zmq_context.try(:terminate)
         end
 
-        def timeout
-          if broadcast_beacons?
-            beacon_interval
-          else
-            nil
-          end
-        end
-
         def to_proto
           @proto ||= ::Protobuf::Rpc::DynamicDiscovery::Server.new(
             :uuid => uuid,
@@ -204,13 +196,16 @@ module Protobuf
         end
 
         def wait_for_shutdown_signal
+          timeout = broadcast_beacons? ? beacon_interval : nil
+
           loop do
             break if IO.select([@shutdown_r], nil, nil, timeout)
 
+            # This will never get executed when the timeout is set to
+            # nil, i.e., if broadcast_beacons? returns false
             broadcast_heartbeat
           end
         end
-
       end
     end
   end
