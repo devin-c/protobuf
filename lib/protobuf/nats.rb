@@ -19,3 +19,9 @@ Protobuf.connector_type = :nats
 require 'nats/client'
 require 'protobuf/rpc/servers/nats/server'
 require 'protobuf/rpc/connectors/nats'
+
+options = {
+  :servers => ['nats://10.17.30.94:4222']
+}
+
+NATS.start(options)

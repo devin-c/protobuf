@@ -1,5 +1,6 @@
 require 'protobuf/rpc/server'
 require 'protobuf/logging'
+require 'lifeguard'
 
 module Protobuf
   module Rpc
@@ -10,9 +11,10 @@ module Protobuf
 
         def initialize(options)
           @running        = false
-          @servers        = options.fetch(:servers)
-          @subject        = options.fetch(:subject, 'rpc.>')
+          @servers        = options.fetch(:servers, ['nats://10.17.30.94:4222'])
+          @subject        = options.fetch(:subject, 'atlas.abacus.>')
           @pool_size      = options.fetch(:threads, 1)
+          @pool           = Lifeguard::InfiniteThreadPool.new(:pool_size => @pool_size)
         end
 
         def log_signature
@@ -29,13 +31,13 @@ module Protobuf
 
           NATS.start(:servers => @servers) do
             NATS.subscribe(@subject, :queue => @queue) do |msg, reply_to, subj|
-              if @work_queue.size > @max_queue_size
+              if @pool.busy?
                 NATS.publish(subj, msg, reply_to)
-              end
-
-              @thread_pool.async(msg, reply_to, subj) do |_msg, _reply_to, _subj|
-                data = handle_request(_msg)
-                NATS.publish(_reply_to, data)
+              else
+                @pool.async(msg, reply_to, subj) do |_msg, _reply_to, _subj|
+                  data = handle_request(_msg)
+                  NATS.publish(_reply_to, data)
+                end
               end
             end
 
