@@ -7,8 +7,6 @@ module Protobuf
         include Protobuf::Rpc::Connectors::Common
         include Protobuf::Logging
 
-        NATS.start(:servers => 
-
         def send_request
           3.times do
             queue = Queue.new
