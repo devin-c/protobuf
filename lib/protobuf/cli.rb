@@ -33,6 +33,7 @@ module Protobuf
 
     option :socket,                     :type => :boolean, :aliases => %w(-s), :desc => 'Socket Mode for server and client connections.'
     option :zmq,                        :type => :boolean, :aliases => %w(-z), :desc => 'ZeroMQ Socket Mode for server and client connections.'
+    option :nats,                       :type => :boolean, :aliases => %w(-z), :desc => 'Use NATS for consuming RPC requests.'
 
     option :beacon_interval,            :type => :numeric, :desc => 'Broadcast beacons every N seconds. (default: 5)'
     option :beacon_port,                :type => :numeric, :desc => 'Broadcast beacons to this port (default: value of ServiceDirectory.port)'
@@ -120,12 +121,16 @@ module Protobuf
                       :socket
                     elsif options.zmq?
                       :zmq
+                    elsif options.nats?
+                      :zmq
                     else
                       case server_type = ENV["PB_SERVER_TYPE"]
                       when nil, /socket/i
                         :socket
                       when /zmq/i
                         :zmq
+                      when /nats/i
+                        :nats
                       else
                         say "WARNING: You have provided incorrect option 'PB_SERVER_TYPE=#{server_type}'. Defaulting to socket mode.", :yellow
                         :socket
@@ -159,6 +164,8 @@ module Protobuf
                         create_zmq_runner
                       when :socket
                         create_socket_runner
+                      when :nats
+                        create_nats_runner
                       else
                         say_and_exit("Unknown runner mode: #{mode}")
                       end
@@ -216,6 +223,12 @@ module Protobuf
         require 'protobuf/zmq'
 
         self.runner = ::Protobuf::Rpc::ZmqRunner.new(runner_options)
+      end
+
+      def create_nats_runner
+        require 'protobuf/nats'
+
+        self.runner = ::Protobuf::Rpc::NatsRunner.new(runner_options)
       end
 
       def shutdown_server
