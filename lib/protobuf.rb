@@ -31,7 +31,7 @@ require 'protobuf/descriptors'
 module Protobuf
 
   # See Protobuf#connector_type documentation.
-  CONNECTORS = [:socket, :zmq].freeze
+  CONNECTORS = [:socket, :zmq, :nats].freeze
 
   # Default is Socket as it has no external dependencies.
   DEFAULT_CONNECTOR = :socket
