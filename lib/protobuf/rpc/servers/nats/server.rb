@@ -10,9 +10,10 @@ module Protobuf
         include ::Protobuf::Logging
 
         def initialize(options)
-          @running        = false
+          @running        = true
           @servers        = options.fetch(:servers, ['nats://10.17.30.94:4222'])
-          @subject        = options.fetch(:subject, 'atlas.abacus.>')
+          @subject        = options.fetch(:subject, 'atlas.amigo.>')
+          @queue          = options.fetch(:queue, 'atlas.amigo')
           @pool_size      = options.fetch(:threads, 20)
           @pool           = Lifeguard::InfiniteThreadpool.new(:pool_size => @pool_size)
         end

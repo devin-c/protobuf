@@ -8,6 +8,8 @@ module Protobuf
         include Protobuf::Logging
 
         def send_request
+          setup_connection
+
           3.times do
             queue = Queue.new
             subject = options[:service].to_s.underscore.gsub('/', '.') + ".#{options[:method]}"
@@ -21,6 +23,7 @@ module Protobuf
 
             if resp != :timeout
               @response_data = resp
+              parse_response
               return
             end
           end
