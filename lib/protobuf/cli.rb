@@ -5,6 +5,7 @@ require 'protobuf/version'
 require 'protobuf/logging'
 require 'protobuf/rpc/servers/socket_runner'
 require 'protobuf/rpc/servers/zmq_runner'
+require 'protobuf/rpc/servers/nats_runner'
 
 module Protobuf
   class CLI < ::Thor
