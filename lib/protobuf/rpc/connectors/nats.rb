@@ -10,12 +10,12 @@ module Protobuf
         def send_request
           3.times do
             queue = Queue.new
-            subject = options[:service].to_s.underscore.sub('/', '.') + ".#{options[:method]}"
-            sid = NATS.request(subject, @request_data) do |resp|
+            subject = options[:service].to_s.underscore.gsub('/', '.') + ".#{options[:method]}"
+            sid = NATS.request(subject, @request_data, :max => 1) do |resp|
               queue.push(resp)
             end
 
-            NATS.timeout(sid, options[:timeout]) { queue.push :timeout }
+            NATS.timeout(sid, 10) { queue.push :timeout }
 
             resp = queue.pop
 

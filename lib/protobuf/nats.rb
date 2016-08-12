@@ -24,4 +24,8 @@ options = {
   :servers => ['nats://10.17.30.94:4222']
 }
 
-NATS.start(options)
+Thread.new do
+  EM.run do
+    NATS.start(options)
+  end
+end
